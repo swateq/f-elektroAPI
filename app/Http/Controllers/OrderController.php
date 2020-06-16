@@ -4,7 +4,6 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-use Carbon\Carbon;
 
 class OrderController extends Controller
 {
@@ -20,9 +19,10 @@ class OrderController extends Controller
             ->where('tw_CechaTw.cht_IdCecha','4')
             ->where('dok__Dokument.dok_Status','!=','8')
             ->where('dok__Dokument.dok_KatId','!=','14')
+            ->where('dok__Dokument.dok_DataWyst','>', now()->subDays(60))
             ->orderBy('dok__Dokument.dok_Id','desc')
-            ->take(100)
             ->get();
+
     }
 
     public function getKomplet($id)
@@ -74,6 +74,27 @@ class OrderController extends Controller
             ->get();
     }
 
+    public function getMagRuch($prodId)
+    {
+        return DB::table('dok_MagRuch')
+                ->where('mr_TowId',$prodId)
+                ->where('mr_MagId', '1')
+                ->where('mr_Pozostalo','!=','0.00')
+                ->orderBy('mr_Data')
+                ->get();
+    }
+
+    public function getLastId($db_name)
+    {
+        $item = DB::select( DB::raw(
+            'declare @p3 int
+            set @p3=null
+            exec spIdentyfikator "'.$db_name.'",1,@p3 output
+            select @p3 as id'));
+
+        return $item[0]->id;
+    }
+
     public function searchTowar(Request $request)
     {
         return DB::table('tw__Towar')
@@ -81,6 +102,34 @@ class OrderController extends Controller
             ->whereRaw("tw__Towar.tw_Symbol like '%".$request->search."%'")
             ->OrWhereRaw("tw__Towar.tw_Nazwa like '%".$request->search."%'")
             ->get();
+    }
+
+    public function makeMagRuch($pozId, $towId, $quantity, $cena)
+    {
+        $id = $this->getLastId('dok_magruch');
+
+        DB::table('dok_MagRuch')
+            ->insert([
+                'mr_Id' => $id,
+                'mr_DoId' => NULL,
+                'mr_SeriaId' => $id,
+                'mr_PozId' => $pozId,
+                'mr_TowId' => $towId,
+                'mr_MagId' => 1,
+                'mr_Data' => now(),
+                'mr_Ilosc' => $quantity,
+                'mr_Pozostalo' => $quantity,
+                'mr_Cena' => $cena,
+                'mr_Termin' => NULL,
+            ]);
+
+        DB::table('dok_MagWart')
+            ->insert([
+                'mw_SeriaId' => $id,
+                'mw_PozId' => $pozId,
+                'mw_Data' => now(),
+                'mw_Cena' => $cena,
+            ]);
     }
 
     public function connectPwRw($PwId, $RwId)
@@ -102,18 +151,14 @@ class OrderController extends Controller
                 'dok_DoDokNrPelny' => $pw->dok_NrPelny
             ]);
 
-        return redirect('127.0.0.1:8000/order');
+        return redirect()->away('127.0.0.1:8000/order');
     }
 
     public function addPw($prodId, $quantity)
     {
         if($this->checkQuantity($prodId, $quantity))
         {
-            $lastIdOfDokument = DB::table('dok__Dokument')
-                        ->select('dok_Id')
-                        ->orderBy('dok_Id','desc')
-                        ->first();
-            $thisIdOfDokument = $lastIdOfDokument->dok_Id+1;
+            $thisIdOfDokument = $this->getLastId('dok__Dokument');
             $now = now();
 
             $product = $this->getTowar($prodId)->first();
@@ -127,8 +172,8 @@ class OrderController extends Controller
                 ->where('st_MagId', 1)
                 ->update(['st_stan' => DB::raw('st_stan+'.$quantity)]);
 
-            $id = DB::table('dok__Dokument')
-                ->insertGetId([
+            DB::table('dok__Dokument')
+                ->insert([
                     'dok_Id' => $thisIdOfDokument,
                     'dok_MagId' => '1',
                     'dok_Podtyp' => '0',
@@ -167,16 +212,13 @@ class OrderController extends Controller
                     'dok_PersonelId' => 80
                 ]);
 
-            $lastIdOfPozycja = DB::table('dok_Pozycja')
-                    ->select('ob_Id')
-                    ->orderBy('ob_Id','desc')
-                    ->first();
+            $lastIdOfPozycja = $this->getLastId('dok_Pozycja');
 
             DB::table('dok_Pozycja')
                     ->insert([
                         'ob_DokMagId' => $thisIdOfDokument,
                         'ob_TowId' => $prodId,
-                        'ob_Id' => $lastIdOfPozycja->ob_Id+1,
+                        'ob_Id' => $lastIdOfPozycja,
                         'ob_DokHanLp' => 1,
                         'ob_DokMagLp' => 1,
                         'ob_Ilosc' => $quantity,
@@ -194,15 +236,19 @@ class OrderController extends Controller
                         'ob_VatProc' => '23.0000'
                     ]);
 
+            DB::update( DB::raw('exec spSub_StanZwieksz 1,'.$prodId.',$'.$quantity.'.0000'));
+
+            $this->makeMagRuch($lastIdOfPozycja,$prodId,$quantity,$cena->tc_CenaNetto1);
+
             $this->addRw($thisIdOfDokument, $prodId, $quantity);
 
-            return $thisIdOfDokument;
+            return redirect()->away('http://127.0.0.1:8000');
         }
 
         return false;
     }
 
-    public function addRw($dokId, $prodId, $quantity)
+    public function addRw($pwId, $prodId, $quantity)
     {
         $komplet = $this->getKomplet($prodId);
         $product = $this->getTowar($prodId)->first();
@@ -211,16 +257,17 @@ class OrderController extends Controller
 
         $netto = round($quantity) * $cena->tc_CenaNetto1;
         $brutto = round($quantity) * $cena->tc_CenaBrutto1;
+        $thisIdOfDokument = $this->getLastId('dok__Dokument');
 
 
         DB::table('tw_Stan')
             ->where('st_towID',$prodId)
             ->where('st_MagId', 1)
-            ->update(['st_stan' => DB::raw('st_stan-'.$quantity)]);
+            ->update(['st_Stan' => DB::raw('st_Stan-'.$quantity)]);
 
-        $id = DB::table('dok__Dokument')
-            ->insertGetId([
-                'dok_Id' => ++$dokId,
+        DB::table('dok__Dokument')
+            ->insert([
+                'dok_Id' => $thisIdOfDokument,
                 'dok_MagId' => '1',
                 'dok_Podtyp' => '0',
                 'dok_DataWyst' => $now,
@@ -260,18 +307,15 @@ class OrderController extends Controller
         $i = 1;
         foreach($komplet as $product)
         {
-            $lastIdOfPozycja = DB::table('dok_Pozycja')
-                ->select('ob_Id')
-                ->orderBy('ob_Id','desc')
-                ->first();
+            $lastIdOfPozycja = $this->getLastId('dok_Pozycja');
 
             $cena = $this->getCena($product->tw_Id);
 
             DB::table('dok_Pozycja')
                 ->insert([
-                    'ob_DokMagId' => $dokId,
+                    'ob_DokMagId' => $thisIdOfDokument,
                     'ob_TowId' => $product->tw_Id,
-                    'ob_Id' => $lastIdOfPozycja->ob_Id+1,
+                    'ob_Id' => $lastIdOfPozycja,
                     'ob_DokHanLp' => $i++,
                     'ob_DokMagLp' => 1,
                     'ob_Ilosc' => $quantity * $product->kpl_Liczba,
@@ -288,9 +332,29 @@ class OrderController extends Controller
                     'ob_VatId' => '100001',
                     'ob_VatProc' => '23.0000'
                 ]);
-        }
+        $this->makeMagRuch($lastIdOfPozycja,$product->tw_Id,$quantity,$cena->tc_CenaNetto1);
 
-        $this->connectPwRw($dokId, --$dokId);
+        DB::update( DB::raw('exec spSub_RuchDlaDyspozycji '.$lastIdOfPozycja.',"'.$now.'"'));
+        DB::update( DB::raw('exec spSub_RuchDlaTowaru_pa 1,'.$product->tw_Id.',"'.$now.'"'));
+
+        $magruch = $this->getMagRuch($product->tw_Id);
+
+        $left = $quantity;
+        foreach($magruch as $item)
+        {
+            if($item->mr_Pozostalo >= $quantity)
+            {
+                $tmp = $item->mr_Pozostalo - $quantity;
+                DB::update( DB::raw('exec spSub_RuchZdejmuj '.$item->mr_Id.',$'.$tmp.',NULL'));
+                break;
+            }else{
+                $left -= $item->mr_Pozostalo;
+                DB::update( DB::raw('exec spSub_RuchZdejmuj '.$item->mr_Id.',$0.0000,NULL'));
+            }
+        }
+    }
+
+        $this->connectPwRw($thisIdOfDokument, $pwId);
 
     }
 

@@ -25,3 +25,10 @@ Route::get('/connectpwrw/{PwId}/{RwId}', 'OrderController@connectPwRw');
 
 Route::get('/product', 'OrderController@searchTowar');
 Route::get('/product/stan/{id}/{quantity}', 'OrderController@checkQuantity');
+
+
+Route::get('/dok_last_id/{db_name}','OrderController@getLastId');
+Route::get('/get_mag_ruch/{prod_id}','OrderController@getMagRuch');
+
+
+Route::get('/test','OrderController@test');
