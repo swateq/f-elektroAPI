@@ -14,6 +14,7 @@ use Illuminate\Support\Facades\Route;
 */
 
 Route::get('/', 'OrderController@getTowarFromZk');
+Route::get('/export', 'OrderController@getTowarFromZkExport');
 Route::get('/komplet/{id}', 'OrderController@getKomplet');
 Route::get('/product/{id}', 'OrderController@getTowar');
 Route::get('/product/{id}/cena', 'OrderController@getCena');

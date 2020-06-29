@@ -14,7 +14,7 @@ class OrderController extends Controller
             ->join('tw__Towar', 'tw__Towar.tw_Id', '=', 'dok_Pozycja.ob_TowId')
             ->join('kh__Kontrahent', 'kh__Kontrahent.kh_Id', '=', 'dok__Dokument.dok_PlatnikId')
             ->join('tw_CechaTw', 'tw_CechaTw.cht_IdTowar', '=', 'tw__Towar.tw_Id')
-            ->select('tw_CechaTw.cht_IdCecha', 'tw__Towar.tw_Id','dok__Dokument.dok_NrPelny', 'dok__Dokument.dok_Id', 'dok__Dokument.dok_DataWyst','tw__Towar.tw_Symbol', 'tw__Towar.tw_Nazwa', 'tw__Towar.tw_Rodzaj', 'dok_Pozycja.ob_Ilosc', 'dok_Pozycja.ob_Id', 'kh__Kontrahent.kh_Symbol', 'dok__Dokument.dok_DataWyst')
+            ->select('tw__Towar.tw_Id','dok__Dokument.dok_NrPelny', 'dok__Dokument.dok_Id', 'dok__Dokument.dok_DataWyst','tw__Towar.tw_Symbol', 'tw__Towar.tw_Nazwa', 'tw__Towar.tw_Rodzaj', 'dok_Pozycja.ob_Ilosc', 'dok_Pozycja.ob_Id', 'kh__Kontrahent.kh_Symbol', 'dok__Dokument.dok_DataWyst')
             ->where('dok__Dokument.dok_Typ','=','16')
             ->where('tw_CechaTw.cht_IdCecha','4')
             ->where('dok__Dokument.dok_Status','!=','8')
@@ -22,7 +22,25 @@ class OrderController extends Controller
             ->where('dok__Dokument.dok_DataWyst','>', now()->subDays(60))
             ->orderBy('dok__Dokument.dok_Id','desc')
             ->get();
+    }
 
+    public function getTowarFromZkExport()
+    {
+        return DB::table('dok__Dokument')
+            ->join('dok_Pozycja', 'dok__Dokument.dok_Id', '=', 'dok_Pozycja.ob_DokHanId')
+            ->join('tw__Towar', 'tw__Towar.tw_Id', '=', 'dok_Pozycja.ob_TowId')
+            ->join('kh__Kontrahent', 'kh__Kontrahent.kh_Id', '=', 'dok__Dokument.dok_PlatnikId')
+            ->join('tw_CechaTw', 'tw_CechaTw.cht_IdTowar', '=', 'tw__Towar.tw_Id')
+            ->join('kh_CechaKh', 'kh_CechaKh.ck_IdKhnt', '=', 'kh__Kontrahent.kh_Id')
+            ->select('tw_CechaTw.cht_IdCecha', 'tw__Towar.tw_Id','dok__Dokument.dok_NrPelny', 'dok__Dokument.dok_Id', 'dok__Dokument.dok_DataWyst','tw__Towar.tw_Symbol', 'tw__Towar.tw_Nazwa', 'tw__Towar.tw_Rodzaj', 'dok_Pozycja.ob_Ilosc', 'dok_Pozycja.ob_Id', 'kh__Kontrahent.kh_Symbol', 'dok__Dokument.dok_DataWyst')
+            ->where('dok__Dokument.dok_Typ','=','16')
+            ->where('tw_CechaTw.cht_IdCecha','4')
+            ->where('dok__Dokument.dok_Status','!=','8')
+            ->where('dok__Dokument.dok_KatId','!=','14')
+            ->where('kh_CechaKh.ck_IdCecha','=','14')
+            ->where('dok__Dokument.dok_DataWyst','>', now()->subDays(60))
+            ->orderBy('dok__Dokument.dok_Id','desc')
+            ->get();
     }
 
     public function getKomplet($id)
@@ -102,6 +120,15 @@ class OrderController extends Controller
             ->whereRaw("tw__Towar.tw_Symbol like '%".$request->search."%'")
             ->OrWhereRaw("tw__Towar.tw_Nazwa like '%".$request->search."%'")
             ->get();
+    }
+
+    public function updateCenaForDokMagRuch($dokMagId, $dokMagIdToUpdate)
+    {
+        $cena = DB::table('dok_MagRuch')->select('mr_Cena')->where('mr_Id',$dokMagId)->first();
+
+        DB::table('dok_MagRuch')->where('mr_Id',$dokMagIdToUpdate)->update(['mr_Cena' => $cena]);
+
+        return true;
     }
 
     public function makeMagRuch($pozId, $towId, $quantity, $cena)
